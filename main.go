@@ -47,7 +47,7 @@ func main() {
 		log.Fatalln("need at least one region")
 	}
 
-	loc, err := time.LoadLocation("Europe/Stockholm")
+	loc, err := time.LoadLocation("Europe/Helsinki")
 	if err != nil {
 		log.Fatalln(err)
 	}
