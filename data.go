@@ -4,7 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"io/ioutil"
+	"log"
+	"math"
 	"net/http"
 	"sync"
 	"time"
@@ -47,7 +48,7 @@ func (d *Data) UnmarshalJSON(data []byte) error {
 
 	d.Timestamp = parsed
 	d.Region = v.PriceArea
-	d.Value = (v.Value * 100) / 10000
+	d.Value = math.Round(v.Value*100) / 10000
 	d.Currency = "SEK"
 
 	return nil
@@ -85,7 +86,7 @@ func fetchFromURL(date time.Time, region string) ([]byte, error) {
 	res := fmt.Sprintf(
 		source,
 		date.Format("2006-01-02"),
-		date.Format("2006-01-02"),
+		date.AddDate(0, 0, 1).Format("2006-01-02"),
 		region,
 	)
 
@@ -101,7 +102,7 @@ func fetchFromURL(date time.Time, region string) ([]byte, error) {
 		return nil, fmt.Errorf("failed to fetch %s: %w", res, err)
 	}
 	defer func() {
-		io.Copy(ioutil.Discard, resp.Body)
+		io.Copy(io.Discard, resp.Body)
 		resp.Body.Close()
 	}()
 
@@ -115,4 +116,37 @@ func fetchFromURL(date time.Time, region string) ([]byte, error) {
 	}
 
 	return data, nil
+}
+
+// forecastHandler returns JSON in a format compatible with the Grafana JSON-API
+// plugin. This allows you to display the forecast as Prometheus doesn't do values
+// in the future
+func forecastHandler(loc *time.Location, regions []string) func(w http.ResponseWriter, r *http.Request) {
+	return func(w http.ResponseWriter, r *http.Request) {
+		type point struct {
+			Time   time.Time `json:"time"`
+			Region string    `json:"region"`
+			Value  float64   `json:"value"`
+		}
+		res := []point{}
+
+		for _, reg := range regions {
+			now := time.Now().In(loc)
+			data, err := fetch(now, reg)
+			if err != nil {
+				log.Println(err)
+			}
+			for _, entry := range data {
+				if entry.Timestamp.Before(now) {
+					continue
+				}
+				res = append(res, point{Time: entry.Timestamp, Region: entry.Region, Value: entry.Value})
+			}
+		}
+		enc := json.NewEncoder(w)
+		err := enc.Encode(res)
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+		}
+	}
 }

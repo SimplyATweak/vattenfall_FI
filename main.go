@@ -15,6 +15,7 @@ import (
 	_ "time/tzdata"
 
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/collectors"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
@@ -39,7 +40,7 @@ func main() {
 	flag.Parse()
 
 	if *showVersion {
-		fmt.Fprintf(os.Stdout, "{\"version\": \"%s\", \"commit\": \"%s\", \"date\": \"%s\"}\n", version, commit, date)
+		fmt.Fprintf(os.Stdout, "{\"version\": \"%s\", \"commit\": \"%s\", \"date\": \"%s\"}\n", Version(), Commit(), Timestamp())
 		os.Exit(0)
 	}
 
@@ -76,8 +77,8 @@ func main() {
 		defer cancel()
 
 		p := prometheus.NewPedanticRegistry()
-		p.MustRegister(prometheus.NewProcessCollector(prometheus.ProcessCollectorOpts{}))
-		p.MustRegister(prometheus.NewGoCollector())
+		p.MustRegister(collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}))
+		p.MustRegister(collectors.NewGoCollector())
 
 		listener, err := net.Listen("tcp", *addr)
 		if err != nil {
@@ -87,6 +88,7 @@ func main() {
 		mux := http.NewServeMux()
 		mux.Handle("/metrics", promhttp.HandlerFor(p, promhttp.HandlerOpts{}))
 		mux.Handle("/prices", promhttp.InstrumentMetricHandler(p, promhttp.HandlerFor(c, promhttp.HandlerOpts{})))
+		mux.Handle("/forecast", promhttp.InstrumentMetricHandler(p, http.HandlerFunc(forecastHandler(loc, regions))))
 		h := &http.Server{
 			Handler: mux,
 		}
